@@ -1,0 +1,43 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openai-utils-py
+  labels:
+    app: readme-project
+  namespace: default
+data:
+  openai_utils.py: |
+    # Utilities for interacting with Azure OpenAI
+    import requests
+    import os
+    AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
+    AZURE_OPENAI_KEY = os.getenv("AZURE_OPENAI_KEY")
+    AZURE_OPENAI_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT")
+    BEST_PRACTICES_PATH = os.path.join(os.path.dirname(__file__), "..", "readme_best_practices.md")
+
+    def validate_readme(readme_content):
+      """Send README and best practices to Azure OpenAI for validation."""
+      with open(BEST_PRACTICES_PATH, "r", encoding="utf-8") as f:
+        best_practices = f.read()
+      prompt = (
+        "Compare o seguinte README com as melhores práticas abaixo. Responda apenas com 'Aderente' ou 'Não aderente' e explique brevemente:\n\n"
+        "README:\n" + readme_content + "\n\n"
+        "Melhores práticas:\n" + best_practices
+      )
+      headers = {
+        "api-key": AZURE_OPENAI_KEY,
+        "Content-Type": "application/json"
+      }
+      data = {
+        "messages": [
+          {"role": "system", "content": "Você é um especialista em documentação de software."},
+          {"role": "user", "content": prompt}
+        ],
+        "max_tokens": 256
+      }
+      url = f"{AZURE_OPENAI_ENDPOINT}/openai/deployments/{AZURE_OPENAI_DEPLOYMENT}/chat/completions?api-version=2023-05-15"
+      resp = requests.post(url, headers=headers, json=data)
+      if resp.status_code == 200:
+        return resp.json()["choices"][0]["message"]["content"]
+      else:
+        return f"Erro: {resp.status_code} - {resp.text}"

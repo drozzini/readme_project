@@ -1,0 +1,106 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: readme-consumer
+spec:
+  replicas: 3 # ajuste o paralelismo aqui
+  selector:
+    matchLabels:
+      app: readme-consumer
+  template:
+    metadata:
+      labels:
+        app: readme-consumer
+    spec:
+      containers:
+      - name: consumer
+        image: python:3.11-slim-bullseye
+        command:
+          - /bin/sh
+          - -c
+          - |
+            pip install --no-cache-dir -r /app/requirements.txt && \
+            python /app/main.py consumer
+        env:
+        - name: GITHUB_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: github-token
+              key: token
+        - name: RABBITMQ_URL
+          value: amqp://guest:guest@rabbitmq:5672/
+        - name: MARIADB_HOST
+          value: mariadb
+        - name: MARIADB_USER
+          value: root
+        - name: MARIADB_PASSWORD
+          value: rootpass
+        - name: MARIADB_DATABASE
+          value: readme_db
+        - name: AZURE_OPENAI_ENDPOINT
+          value: <seu-endpoint-openai>
+        - name: AZURE_OPENAI_KEY
+          valueFrom:
+            secretKeyRef:
+              name: azure-openai-key
+              key: key
+        - name: AZURE_OPENAI_DEPLOYMENT
+          value: <seu-deployment-id>
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "1Gi"
+            cpu: "1"
+        volumeMounts:
+        - name: main-py
+          mountPath: /app/main.py
+          subPath: main.py
+        - name: github-utils-py
+          mountPath: /app/github_utils.py
+          subPath: github_utils.py
+        - name: openai-utils-py
+          mountPath: /app/openai_utils.py
+          subPath: openai_utils.py
+        - name: report-utils-py
+          mountPath: /app/report_utils.py
+          subPath: report_utils.py
+        - name: queue-utils-py
+          mountPath: /app/queue_utils.py
+          subPath: queue_utils.py
+        - name: db-utils-py
+          mountPath: /app/db_utils.py
+          subPath: db_utils.py
+        - name: requirements-py
+          mountPath: /app/requirements.txt
+          subPath: requirements.txt
+      volumes:
+      - name: main-py
+        configMap:
+          name: main-py
+          defaultMode: 0775
+      - name: github-utils-py
+        configMap:
+          name: github-utils-py
+          defaultMode: 0775
+      - name: openai-utils-py
+        configMap:
+          name: openai-utils-py
+          defaultMode: 0775
+      - name: report-utils-py
+        configMap:
+          name: report-utils-py
+          defaultMode: 0775
+      - name: queue-utils-py
+        configMap:
+          name: queue-utils-py
+          defaultMode: 0775
+      - name: db-utils-py
+        configMap:
+          name: db-utils-py
+          defaultMode: 0775
+      - name: requirements-py
+        configMap:
+          name: requirements-py
+          defaultMode: 0775

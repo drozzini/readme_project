@@ -1,0 +1,75 @@
+# Main entrypoint for orchestrating the README validation pipeline
+# Orquestração com RabbitMQ (fila) e MariaDB (banco)
+import os
+import tempfile
+from github_utils import get_repositories, download_readme
+from openai_utils import validate_readme
+from queue_utils import publish_job, consume_jobs
+from db_utils import init_db, save_result
+
+def chunk_text(text, max_tokens=2000):
+    # Aproximação: 1 token ~ 4 caracteres em média
+    max_chars = max_tokens * 4
+    return [text[i:i+max_chars] for i in range(0, len(text), max_chars)]
+
+
+def producer():
+    github_user = os.getenv("GITHUB_USER")
+    github_token = os.getenv("GITHUB_TOKEN")
+    github_org = os.getenv("GITHUB_ORG")
+    if not github_user or not github_token:
+        print("GITHUB_USER e GITHUB_TOKEN devem estar definidos.")
+        return
+    repos = get_repositories(github_user, github_token, org=github_org)
+    for repo in repos:
+        job = {
+            "repo_name": repo['name'],
+            "owner": github_org or github_user,
+            "teams_admin": repo.get('teams_admin', []),
+            "teams_maintainer": repo.get('teams_maintainer', []),
+            "teams_granular": repo.get('teams_granular', []),
+        }
+        publish_job(job)
+        print(f"Job enfileirado para {repo['name']}")
+
+
+def consumer():
+    init_db()
+    github_token = os.getenv("GITHUB_TOKEN")
+    def process_job(job):
+        repo_name = job['repo_name']
+        owner = job['owner']
+        teams_admin = job.get('teams_admin', [])
+        teams_maintainer = job.get('teams_maintainer', [])
+        teams_granular = job.get('teams_granular', [])
+        print(f"Consumindo job para {repo_name}")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ok = download_readme(owner, repo_name, github_token, tmpdir)
+            if not ok:
+                save_result(repo_name, 'Sem README', '',
+                            teams_admin=','.join(teams_admin),
+                            teams_maintainer=','.join(teams_maintainer),
+                            teams_granular=teams_granular)
+                return
+            readme_path = os.path.join(tmpdir, f"{repo_name}_README.md")
+            with open(readme_path, encoding="utf-8") as f:
+                readme = f.read()
+            chunks = chunk_text(readme, max_tokens=2000)
+            chunk_results = []
+            for chunk in chunks:
+                result = validate_readme(chunk)
+                chunk_results.append(result)
+            aderente = all('Aderente' in r for r in chunk_results)
+            status = 'Aderente' if aderente else 'Não aderente'
+            save_result(repo_name, status, str(chunk_results),
+                        teams_admin=','.join(teams_admin),
+                        teams_maintainer=','.join(teams_maintainer),
+                        teams_granular=teams_granular)
+    consume_jobs(process_job)
+
+if __name__ == "__main__":
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == 'consumer':
+        consumer()
+    else:
+        producer()

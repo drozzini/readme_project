@@ -1,0 +1,39 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: queue-utils-py
+  labels:
+    app: readme-project
+  namespace: default
+data:
+  queue_utils.py: |
+    # Utilitários para fila RabbitMQ
+    import pika
+    import os
+    import json
+    RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
+    QUEUE_NAME = os.getenv("RABBITMQ_QUEUE", "readme_jobs")
+
+    def publish_job(job_data):
+      connection = pika.BlockingConnection(pika.URLParameters(RABBITMQ_URL))
+      channel = connection.channel()
+      channel.queue_declare(queue=QUEUE_NAME, durable=True)
+      channel.basic_publish(
+        exchange='',
+        routing_key=QUEUE_NAME,
+        body=json.dumps(job_data),
+        properties=pika.BasicProperties(delivery_mode=2)
+      )
+      connection.close()
+
+    def consume_jobs(callback):
+      connection = pika.BlockingConnection(pika.URLParameters(RABBITMQ_URL))
+      channel = connection.channel()
+      channel.queue_declare(queue=QUEUE_NAME, durable=True)
+      def on_message(ch, method, properties, body):
+        job = json.loads(body)
+        callback(job)
+        ch.basic_ack(delivery_tag=method.delivery_tag)
+      channel.basic_qos(prefetch_count=1)
+      channel.basic_consume(queue=QUEUE_NAME, on_message_callback=on_message)
+      channel.start_consuming()
